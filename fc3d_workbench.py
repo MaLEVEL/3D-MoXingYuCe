@@ -90,7 +90,7 @@ THEME_TOKENS = {
         "--primary-button-text": "#FFFFFF",
         "--validate-bg": "#DBEAFE",
         "--validate-text": "#1E3A8A",
-        "--candidate-bg": "#3730A3",
+        "--candidate-bg": "#0F766E",
         "--candidate-text": "#FFFFFF",
         "--solid-button-bg": "#172033",
         "--solid-button-text": "#FFFFFF",
@@ -126,7 +126,7 @@ THEME_TOKENS = {
         "--primary-button-text": "#06111F",
         "--validate-bg": "#1E3A5F",
         "--validate-text": "#DBEAFE",
-        "--candidate-bg": "#2563EB",
+        "--candidate-bg": "#2DD4BF",
         "--candidate-text": "#FFFFFF",
         "--solid-button-bg": "#334155",
         "--solid-button-text": "#F8FAFC",
@@ -363,7 +363,7 @@ def init_state() -> None:
         "active_danma_rule": deepcopy(DANMA_CONFIDENCE_RULE),
         "app_theme_mode": THEME_OPTIONS[0],
         "app_state": AppState(),
-        "active_tab": "数据概览",
+        "active_tab": "数据",
         "last_report_text": "",
         "last_report_file": "fc3d_report.md",
     }
@@ -507,6 +507,59 @@ def action_availability() -> dict[str, bool]:
         "predict": stage in {"训练完成", "回测完成", "候选已生成"},
         "export": stage in {"回测完成", "候选已生成"},
     }
+
+
+def recommended_action_key() -> str:
+    stage = app_stage()
+    if stage == "未加载数据":
+        return "demo"
+    if stage == "已加载未校验":
+        return "validate"
+    if stage == "已校验":
+        return "train"
+    if stage == "训练完成":
+        return "backtest"
+    if stage == "回测完成":
+        return "predict"
+    if stage == "候选已生成":
+        return "export"
+    return "demo"
+
+
+def next_step_copy() -> tuple[str, str]:
+    stage = app_stage()
+    copies = {
+        "未加载数据": ("加载近5年开奖记录", "也可以在侧边栏上传自己的历史开奖CSV。"),
+        "已加载未校验": ("校验数据", "检查字段、日期、重复期号和号码格式。"),
+        "已校验": ("训练模型", "使用已校验数据训练当前启用的模型。"),
+        "训练完成": ("开始滚动回测", "先看时间顺序回测，再判断排序是否有参考价值。"),
+        "回测完成": ("生成候选与胆码", "生成下一期3个胆码、三个位7码和候选分组。"),
+        "候选已生成": ("导出分析报告", "可查看候选、胆码，也可以导出报告和CSV。"),
+    }
+    return copies.get(stage, copies["未加载数据"])
+
+
+def disabled_action_reason(action_key: str) -> str:
+    stage = app_stage()
+    if action_key == "validate":
+        return "请先加载近5年开奖记录或上传CSV。"
+    if action_key == "train":
+        return "请先加载并校验数据。"
+    if action_key == "backtest":
+        return "请先训练模型。"
+    if action_key == "predict":
+        return "请先完成训练模型或滚动回测。"
+    if action_key == "export":
+        return "请先完成滚动回测并生成候选与胆码。"
+    if action_key == "demo" and stage != "未加载数据":
+        return "重新加载近5年开奖记录会清空当前训练、回测和候选结果。"
+    return ""
+
+
+def action_button_type(action_key: str, availability: dict[str, bool]) -> str:
+    if action_key == recommended_action_key() and availability.get(action_key, False):
+        return "primary"
+    return "secondary"
 
 
 def demo_reload_required() -> bool:
@@ -1148,7 +1201,7 @@ def css() -> None:
         }
 
         [data-testid="stFileUploaderDropzoneInstructions"] span::before {
-          content: "拖拽CSV到这里";
+          content: "把历史开奖CSV拖到这里";
           color: var(--text);
           font-size: 0.86rem;
           font-weight: 700;
@@ -1159,7 +1212,7 @@ def css() -> None:
         }
 
         [data-testid="stFileUploaderDropzoneInstructions"] small::before {
-          content: "CSV 文件，字段为 issue、date、number";
+          content: "需要三列：issue期号、date日期、number开奖号";
           color: var(--muted);
           font-size: 0.74rem;
         }
@@ -1187,7 +1240,7 @@ def css() -> None:
         }
 
         [data-testid="stFileUploaderDropzoneInstructions"]::before {
-          content: "拖拽CSV到这里";
+          content: "把历史开奖CSV拖到这里";
           position: absolute;
           top: 0.2rem;
           left: 0;
@@ -1199,7 +1252,7 @@ def css() -> None:
         }
 
         [data-testid="stFileUploaderDropzoneInstructions"]::after {
-          content: "CSV 文件，字段为 issue、date、number";
+          content: "需要三列：issue期号、date日期、number开奖号";
           position: absolute;
           top: 1.35rem;
           left: 0;
@@ -1562,7 +1615,7 @@ def css() -> None:
 
         .stDataFrame, .stTable {
           border: 1px solid var(--border);
-          border-radius: 10px;
+          border-radius: 8px;
           overflow: hidden;
         }
 
@@ -1620,28 +1673,14 @@ def css() -> None:
         }
 
         .stButton button[kind="primary"],
-        div.st-key-main_train_models button:not(:disabled),
-        div.st-key-sidebar_train_models button:not(:disabled) {
+        .stDownloadButton button[kind="primary"] {
           background: var(--accent) !important;
           border-color: var(--accent) !important;
           color: var(--primary-button-text) !important;
         }
 
-        div.st-key-main_start_backtest button:not(:disabled),
-        div.st-key-sidebar_start_backtest button:not(:disabled) {
-          background: var(--accent-2) !important;
-          border-color: var(--accent-2) !important;
-          color: var(--primary-button-text) !important;
-        }
-
-        div.st-key-main_generate_candidates button:not(:disabled),
-        div.st-key-sidebar_generate_candidates button:not(:disabled) {
-          background: var(--candidate-bg) !important;
-          border-color: var(--candidate-bg) !important;
-          color: var(--candidate-text) !important;
-        }
-
-        div.st-key-candidate_export_report button:not(:disabled) {
+        div.st-key-candidate_export_report button:not(:disabled),
+        div.st-key-export_full_report button:not(:disabled) {
           background: var(--solid-button-bg) !important;
           border-color: var(--solid-button-bg) !important;
           color: var(--solid-button-text) !important;
@@ -1654,13 +1693,6 @@ def css() -> None:
           color: var(--disabled-text) !important;
           border-color: var(--border) !important;
           opacity: 1 !important;
-        }
-
-        .fc3d-action-panel .stButton button {
-          width: 100%;
-          min-height: 2.55rem;
-          white-space: normal;
-          line-height: 1.25;
         }
 
         div.st-key-main_action_panel {
@@ -1677,11 +1709,156 @@ def css() -> None:
           color: var(--text);
         }
 
+        .fc3d-action-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+          gap: 0.55rem;
+          margin: 0.45rem 0 0.7rem 0;
+        }
+
+        .fc3d-next-action,
+        .fc3d-disabled-reason {
+          border: 1px solid var(--border);
+          background: var(--panel-2);
+          border-radius: 8px;
+          padding: 0.62rem 0.7rem;
+          color: var(--muted);
+          font-size: 0.82rem;
+          line-height: 1.45;
+        }
+
+        .fc3d-next-action span,
+        .fc3d-disabled-reason span {
+          display: block;
+          color: var(--muted);
+          font-size: 0.72rem;
+          margin-bottom: 0.12rem;
+        }
+
+        .fc3d-next-action b {
+          color: var(--accent);
+          font-size: 1rem;
+        }
+
+        div.st-key-main_action_panel [data-testid="stHorizontalBlock"] {
+          gap: 0.55rem !important;
+          align-items: stretch !important;
+        }
+
+        div.st-key-main_action_panel [data-testid="column"] {
+          min-width: 8rem !important;
+        }
+
         div.st-key-main_action_panel .stButton button {
           width: 100%;
-          min-height: 2.55rem;
+          min-height: 2.35rem;
           white-space: normal;
           line-height: 1.25;
+        }
+
+        .fc3d-backtest-conclusion-grid {
+          display: grid;
+          grid-template-columns: repeat(6, minmax(0, 1fr));
+          gap: 0.5rem;
+          margin: 0.55rem 0 0.65rem 0;
+        }
+
+        .fc3d-conclusion-card {
+          border: 1px solid var(--border);
+          background: var(--panel-2);
+          border-radius: 8px;
+          padding: 0.64rem 0.68rem;
+          min-width: 0;
+        }
+
+        .fc3d-conclusion-card .label {
+          color: var(--muted);
+          font-size: 0.72rem;
+          margin-bottom: 0.18rem;
+        }
+
+        .fc3d-conclusion-card .value {
+          color: var(--text);
+          font-weight: 800;
+          font-size: 0.92rem;
+          line-height: 1.25;
+          overflow-wrap: anywhere;
+        }
+
+        .fc3d-sig-badge,
+        .fc3d-sig-yes,
+        .fc3d-sig-no {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 999px;
+          padding: 0.14rem 0.48rem;
+          font-size: 0.72rem;
+          font-weight: 800;
+          line-height: 1.2;
+        }
+
+        .fc3d-sig-yes {
+          background: var(--good-bg);
+          color: var(--good-text);
+          border: 1px solid var(--ok);
+        }
+
+        .fc3d-sig-no {
+          background: var(--disabled-bg);
+          color: var(--disabled-text);
+          border: 1px solid var(--border);
+        }
+
+        .fc3d-danma-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 0.7rem;
+          margin: 0.75rem 0;
+        }
+
+        .fc3d-danma-card {
+          border: 1px solid var(--border);
+          background: var(--panel-2);
+          border-radius: 8px;
+          padding: 0.78rem;
+          min-width: 0;
+        }
+
+        .fc3d-danma-card .digit {
+          color: var(--accent);
+          font-size: 2rem;
+          font-weight: 900;
+          line-height: 1;
+        }
+
+        .fc3d-danma-card .meta {
+          color: var(--muted);
+          font-size: 0.78rem;
+          line-height: 1.35;
+          margin-top: 0.35rem;
+          overflow-wrap: anywhere;
+        }
+
+        .fc3d-candidate-section {
+          border-top: 3px solid var(--accent);
+          padding-top: 0.55rem;
+          margin-top: 0.75rem;
+        }
+
+        .fc3d-candidate-section.diverse {
+          border-top-color: var(--accent-2);
+        }
+
+        .fc3d-candidate-section.long-tail {
+          border-top-color: var(--warning-border);
+        }
+
+        .fc3d-export-center-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 0.65rem;
+          margin: 0.65rem 0;
         }
 
         [data-testid="stCodeBlock"] pre {
@@ -1708,13 +1885,13 @@ def css() -> None:
         }
 
         [data-testid="stFileUploaderDropzoneInstructions"] > div span:first-child::before {
-          content: "拖放 CSV 文件到这里";
+          content: "把历史开奖CSV拖到这里";
           font-size: 0.88rem;
           color: var(--text);
         }
 
         [data-testid="stFileUploaderDropzoneInstructions"] > div span:nth-child(2)::before {
-          content: "单个文件上限 200MB，仅支持 CSV";
+          content: "需要三列：issue期号、date日期、number开奖号";
           font-size: 0.78rem;
           color: var(--muted);
         }
@@ -1834,6 +2011,12 @@ def css() -> None:
             grid-template-columns: 1fr;
           }
 
+          .fc3d-action-grid,
+          .fc3d-backtest-conclusion-grid,
+          .fc3d-export-center-grid {
+            grid-template-columns: 1fr;
+          }
+
           .fc3d-candidate-cards {
             grid-template-columns: 1fr;
           }
@@ -1878,6 +2061,7 @@ def css() -> None:
             grid-template-columns: 1fr;
           }
 
+          .fc3d-danma-grid,
           .fc3d-position-grid {
             grid-template-columns: 1fr;
           }
@@ -4161,13 +4345,13 @@ def danma_cards_html(prediction: dict[str, Any]) -> str:
     cards: list[str] = []
     for row in ranking.head(3).to_dict("records"):
         cards.append(
-            '<div class="fc3d-position-card">'
-            f'<div class="title">数字 {int(row.get("digit", 0))}</div>'
-            f'<div class="fc3d-note">模型相对分数 {float(row.get("score", 0.0)):.4f}</div>'
-            f'<div class="fc3d-note" style="margin-top:0.35rem">主要支持：{escape(str(row.get("source_models", "")))}</div>'
+            '<div class="fc3d-danma-card">'
+            f'<div class="digit">{int(row.get("digit", 0))}</div>'
+            f'<div class="meta"><b>模型相对分数</b> {float(row.get("score", 0.0)):.4f}</div>'
+            f'<div class="meta"><b>支持来源</b> {escape(str(row.get("source_models", "")))}</div>'
             '</div>'
         )
-    return f'<div class="fc3d-position-grid">{"".join(cards)}</div>' if cards else ""
+    return f'<div class="fc3d-danma-grid">{"".join(cards)}</div>' if cards else ""
 
 
 def render_danma_module(
@@ -4205,7 +4389,7 @@ def render_danma_module(
         <div class="fc3d-warning">胆码：<b>{escape(digits_text)}</b></div>
         <div class="fc3d-note" style="margin-top:0.45rem">
           生成时间：{generated}；数据版本：{data_version}；最新开奖期号/日期：{latest_issue} / {latest_date}。<br>
-          {DANMA_SCORE_NOTE}{threshold_note}
+          胆码只是模型排序结果，不是中奖概率，不代表真实预测。{threshold_note}
         </div>
         """,
         unsafe_allow_html=True,
@@ -4388,6 +4572,59 @@ def position_metric_summary_html(metrics: dict[str, dict[str, float]]) -> str:
     return f'<div class="fc3d-topbar-grid" style="margin:0.45rem 0 0.75rem 0">{cards}</div>'
 
 
+def backtest_conclusion_html(metrics: dict[str, dict[str, float]], note: str, fold_df: pd.DataFrame | None = None) -> str:
+    summary_df = backtest_run_summary_dataframe(metrics, note, fold_df)
+    summary_map = dict(zip(summary_df.get("项目", []), summary_df.get("值", []))) if not summary_df.empty else {}
+    verdict_df = baseline_summary_dataframe(metrics)
+
+    def conclusion_for(item: str, default: str = "等待回测") -> str:
+        if verdict_df.empty:
+            return default
+        matched = verdict_df[verdict_df["项目"] == item]
+        if matched.empty:
+            return default
+        return str(matched.iloc[0]["结论"])
+
+    statistic_text = conclusion_for("统计结论", "未达到显著优势")
+    items = [
+        ("回测模式", str(summary_map.get("回测模式", "尚未运行"))),
+        ("测试样本", str(summary_map.get("测试样本数量", "—"))),
+        ("滚动窗口", str(summary_map.get("滚动窗口数量", "—"))),
+        ("三位7码", conclusion_for("三位7码")),
+        ("直选Top10", conclusion_for("直选Top10")),
+        ("统计结论", statistic_text),
+    ]
+    cards = "".join(
+        (
+            '<div class="fc3d-conclusion-card">'
+            f'<div class="label">{escape(label)}</div>'
+            f'<div class="value">{escape(value)}</div>'
+            "</div>"
+        )
+        for label, value in items
+    )
+    warning = ""
+    if statistic_text != "达到单项显著优势":
+        warning = '<div class="fc3d-warning" style="margin:0.5rem 0">当前模型暂未证明长期有效，仅可作为模拟排序参考。</div>'
+    return (
+        '<div class="fc3d-note" style="margin-top:0.45rem"><b>回测结论卡片</b></div>'
+        f'<div class="fc3d-backtest-conclusion-grid">{cards}</div>'
+        f"{warning}"
+    )
+
+
+def significance_badges_html(audit_df: pd.DataFrame) -> str:
+    if audit_df is None or audit_df.empty or "是否显著" not in audit_df.columns:
+        return ""
+    badges = []
+    for row in audit_df.head(14).to_dict("records"):
+        significant = str(row.get("是否显著", "否")) == "是"
+        badge_class = "fc3d-sig-yes" if significant else "fc3d-sig-no"
+        label = f"{row.get('指标', '')}：{row.get('是否显著', '否')}"
+        badges.append(f'<span class="{badge_class}">{escape(str(label))}</span>')
+    return f'<div class="fc3d-chiprow" style="margin:0.35rem 0 0.55rem 0">{"".join(badges)}</div>'
+
+
 def compact_weight_text(weights: dict[str, float]) -> str:
     aliases = {
         "combination_marginal_score": "c",
@@ -4507,10 +4744,12 @@ def quick_scheme_dataframe() -> pd.DataFrame:
     )
 
 
-def render_primary_actions(report: dict[str, Any] | None) -> tuple[bool, bool, bool, bool, bool]:
+def render_primary_actions(report: dict[str, Any] | None) -> tuple[bool, bool, bool, bool, bool, bool]:
     availability = action_availability()
     reload_required = demo_reload_required()
     confirm_reload = True
+    next_label, next_hint = next_step_copy()
+    next_reason = ""
 
     with st.container(key="main_action_panel"):
         st.markdown("<h3>快速操作</h3>", unsafe_allow_html=True)
@@ -4531,18 +4770,79 @@ def render_primary_actions(report: dict[str, Any] | None) -> tuple[bool, bool, b
                 unsafe_allow_html=True,
             )
         if reload_required:
-            st.warning(f"{demo_button_label()}会清空当前训练、回测和候选结果。")
+            st.warning("重新加载近5年开奖记录会清空当前训练、回测和候选结果。")
             confirm_reload = st.checkbox(f"确认{demo_button_label()}", key="main_confirm_reload_demo")
-        demo_btn = st.button(
-            demo_button_label(),
-            key="main_load_demo",
-            width="stretch",
-            disabled=not availability["demo"] or (reload_required and not confirm_reload),
+            if not confirm_reload:
+                next_reason = "如需重新加载，请先勾选确认。"
+        if not next_reason:
+            unavailable_reason = disabled_action_reason(recommended_action_key())
+            if unavailable_reason and not availability.get(recommended_action_key(), True):
+                next_reason = unavailable_reason
+        st.markdown(
+            f"""
+            <div class="fc3d-action-grid">
+              <div class="fc3d-next-action"><span>下一步</span><b>{escape(next_label)}</b><br>{escape(next_hint)}</div>
+              <div class="fc3d-disabled-reason"><span>禁用说明</span>{escape(next_reason or "灰色按钮暂不可用，请按当前阶段顺序完成。")}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-        validate_btn = st.button("校验数据", key="main_validate_data", width="stretch", disabled=not availability["validate"])
-        train_btn = st.button("训练模型", key="main_train_models", width="stretch", disabled=not availability["train"], type="primary")
-        backtest_btn = st.button("开始回测", key="main_start_backtest", width="stretch", disabled=not availability["backtest"])
-        predict_btn = st.button("生成候选", key="main_generate_candidates", width="stretch", disabled=not availability["predict"])
+        load_col, validate_col, train_col = st.columns(3, gap="small")
+        backtest_col, predict_col, export_col = st.columns(3, gap="small")
+        with load_col:
+            demo_btn = st.button(
+                demo_button_label(),
+                key="main_load_demo",
+                width="stretch",
+                disabled=not availability["demo"] or (reload_required and not confirm_reload),
+                type=action_button_type("demo", availability) if not reload_required else "secondary",
+                help=disabled_action_reason("demo") if reload_required else "加载系统缓存的近5年开奖记录。",
+            )
+        with validate_col:
+            validate_btn = st.button(
+                "校验数据",
+                key="main_validate_data",
+                width="stretch",
+                disabled=not availability["validate"],
+                type=action_button_type("validate", availability),
+                help=disabled_action_reason("validate") if not availability["validate"] else "正在校验数据，预计30-40秒。",
+            )
+        with train_col:
+            train_btn = st.button(
+                "训练模型",
+                key="main_train_models",
+                width="stretch",
+                disabled=not availability["train"],
+                type=action_button_type("train", availability),
+                help=disabled_action_reason("train") if not availability["train"] else "正在训练模型，预计30-60秒。",
+            )
+        with backtest_col:
+            backtest_btn = st.button(
+                "开始滚动回测",
+                key="main_start_backtest",
+                width="stretch",
+                disabled=not availability["backtest"],
+                type=action_button_type("backtest", availability),
+                help=disabled_action_reason("backtest") if not availability["backtest"] else "正在滚动回测，预计40-60秒。",
+            )
+        with predict_col:
+            predict_btn = st.button(
+                "生成候选与胆码",
+                key="main_generate_candidates",
+                width="stretch",
+                disabled=not availability["predict"],
+                type=action_button_type("predict", availability),
+                help=disabled_action_reason("predict") if not availability["predict"] else "正在生成候选，请稍候。",
+            )
+        with export_col:
+            report_btn = st.button(
+                "导出分析报告",
+                key="main_export_report",
+                width="stretch",
+                disabled=not availability["export"],
+                type=action_button_type("export", availability),
+                help=disabled_action_reason("export") if not availability["export"] else "导出完整分析报告。",
+            )
         with st.expander("快捷方案", expanded=False):
             seven_col, position_col, danma_col, direct_col = st.columns(4, gap="small")
             with seven_col:
@@ -4559,7 +4859,7 @@ def render_primary_actions(report: dict[str, Any] | None) -> tuple[bool, bool, b
                     st.success(apply_quick_prediction_scheme("direct_top20_full_coverage"))
             st.dataframe(quick_scheme_dataframe(), width="stretch", hide_index=True)
             st.markdown(f'<div class="fc3d-note">{SAFETY_TEXT}</div>', unsafe_allow_html=True)
-    return demo_btn, validate_btn, train_btn, backtest_btn, predict_btn
+    return demo_btn, validate_btn, train_btn, backtest_btn, predict_btn, report_btn
 
 
 def render_header() -> None:
@@ -4589,7 +4889,7 @@ def render_data_cards(report: dict[str, Any]) -> None:
 
 def render_validation_panel(report: dict[str, Any]) -> None:
     if not report:
-        st.markdown('<div class="fc3d-panel"><h3>数据检查</h3><div class="fc3d-note">请先上传 CSV 并点击“校验数据”。</div></div>', unsafe_allow_html=True)
+        st.markdown('<div class="fc3d-panel"><h3>数据检查</h3><div class="fc3d-note">请先上传历史开奖 CSV，或点击侧边栏按钮加载近5年开奖记录，然后再校验数据。</div></div>', unsafe_allow_html=True)
         return
     st.markdown('<div class="fc3d-panel"><h3>数据检查</h3>', unsafe_allow_html=True)
     hard_issue_count = sum(
@@ -4711,8 +5011,14 @@ def render_charts(clean_df: pd.DataFrame) -> None:
 def render_model_controls() -> None:
     st.sidebar.markdown("## 运行控制")
     st.sidebar.radio("主题", THEME_OPTIONS, key="app_theme_mode", horizontal=True)
-    uploaded = st.sidebar.file_uploader("拖拽CSV到这里", type=["csv"])
-    st.sidebar.caption("字段必须为 `issue,date,number`，`number` 要保留前导 0。")
+    uploaded = st.sidebar.file_uploader(
+        "上传历史开奖数据CSV（可选）",
+        type=["csv"],
+        help="有自己的历史开奖数据表时上传 CSV；没有文件也可以直接加载系统缓存的近5年开奖记录。",
+    )
+    st.sidebar.caption(
+        "上传你自己的历史开奖数据表；需要包含 issue期号、date日期、number开奖号，number 要保留前导0。没有CSV也可以直接点击下方按钮加载近5年开奖记录。"
+    )
     reload_required = demo_reload_required()
     sidebar_confirm_reload = True
     if reload_required:
@@ -4723,8 +5029,15 @@ def render_model_controls() -> None:
         key="sidebar_load_demo",
         width="stretch",
         disabled=reload_required and not sidebar_confirm_reload,
+        type=action_button_type("demo", action_availability()) if not reload_required else "secondary",
+        help=disabled_action_reason("demo") if reload_required else "加载系统缓存的近5年开奖记录。",
     )
-    update_history_btn = st.sidebar.button("获取最新数据", key="sidebar_update_history_repository", width="stretch")
+    update_history_btn = st.sidebar.button(
+        "更新近5年缓存",
+        key="sidebar_update_history_repository",
+        width="stretch",
+        help="从在线接口补全本地近5年历史数据缓存。",
+    )
     if BUILTIN_HISTORY_PATH.exists():
         st.sidebar.download_button(
             "下载近5年缓存历史CSV",
@@ -4805,11 +5118,46 @@ def render_model_controls() -> None:
 
     st.sidebar.markdown("### 操作")
     availability = action_availability()
-    validate_btn = st.sidebar.button("校验数据", key="sidebar_validate_data", width="stretch", disabled=not availability["validate"])
-    train_btn = st.sidebar.button("训练模型", key="sidebar_train_models", width="stretch", disabled=not availability["train"], type="primary")
-    backtest_btn = st.sidebar.button("开始回测", key="sidebar_start_backtest", width="stretch", disabled=not availability["backtest"])
-    predict_btn = st.sidebar.button("生成候选", key="sidebar_generate_candidates", width="stretch", disabled=not availability["predict"])
-    report_btn = st.sidebar.button("导出报告", key="sidebar_export_report", width="stretch", disabled=not availability["export"])
+    validate_btn = st.sidebar.button(
+        "校验数据",
+        key="sidebar_validate_data",
+        width="stretch",
+        disabled=not availability["validate"],
+        type=action_button_type("validate", availability),
+        help=disabled_action_reason("validate") if not availability["validate"] else "正在校验数据，预计30-40秒。",
+    )
+    train_btn = st.sidebar.button(
+        "训练模型",
+        key="sidebar_train_models",
+        width="stretch",
+        disabled=not availability["train"],
+        type=action_button_type("train", availability),
+        help=disabled_action_reason("train") if not availability["train"] else "正在训练模型，预计30-60秒。",
+    )
+    backtest_btn = st.sidebar.button(
+        "开始滚动回测",
+        key="sidebar_start_backtest",
+        width="stretch",
+        disabled=not availability["backtest"],
+        type=action_button_type("backtest", availability),
+        help=disabled_action_reason("backtest") if not availability["backtest"] else "正在滚动回测，预计40-60秒。",
+    )
+    predict_btn = st.sidebar.button(
+        "生成候选与胆码",
+        key="sidebar_generate_candidates",
+        width="stretch",
+        disabled=not availability["predict"],
+        type=action_button_type("predict", availability),
+        help=disabled_action_reason("predict") if not availability["predict"] else "正在生成候选，请稍候。",
+    )
+    report_btn = st.sidebar.button(
+        "导出分析报告",
+        key="sidebar_export_report",
+        width="stretch",
+        disabled=not availability["export"],
+        type=action_button_type("export", availability),
+        help=disabled_action_reason("export") if not availability["export"] else "导出完整分析报告。",
+    )
 
     return uploaded, demo_btn, update_history_btn, validate_btn, train_btn, backtest_btn, predict_btn, report_btn
 
@@ -4907,7 +5255,7 @@ def render_right_rail() -> None:
     st.markdown(
         """
         <div class="fc3d-note">
-          1. 先上传 CSV 并校验。<br>
+          1. 先上传历史开奖 CSV，或点击侧边栏按钮加载近5年开奖记录，然后校验。<br>
           2. 再训练和回测，观察是否明显超过理论随机基线。<br>
           3. 候选号码只是排序结果，不是预测承诺。<br>
           4. 如果模型没有显著超过理论随机基线，说明历史数据里没有稳定可学习规律。
@@ -5025,15 +5373,19 @@ def candidate_group_html(candidate_df: pd.DataFrame) -> str:
     return f'<div class="fc3d-candidate-list">{"".join(rows)}</div>'
 
 
-def render_candidate_group_table(label: str, note: str, candidate_df: pd.DataFrame, expanded: bool = False) -> None:
-    with st.expander(label, expanded=expanded):
-        st.markdown(f'<div class="fc3d-note" style="margin-bottom:0.45rem">{note}</div>', unsafe_allow_html=True)
-        st.markdown(candidate_group_html(candidate_df), unsafe_allow_html=True)
+def render_candidate_group_table(label: str, note: str, candidate_df: pd.DataFrame, tone: str = "") -> None:
+    tone_class = f" {tone}" if tone else ""
+    st.markdown(
+        f'<div class="fc3d-candidate-section{tone_class}"><h4>{escape(label)}</h4>'
+        f'<div class="fc3d-note" style="margin-bottom:0.45rem">{escape(note)}</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(compact_candidate_grid_html(candidate_df), unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_candidate_table(candidate_df: pd.DataFrame) -> None:
-    render_danma_module(current_danma_prediction(), st.session_state.backtest_metrics or {}, expanded_ranking=True)
-    render_no_position_7_module(current_no_position_7_prediction(), st.session_state.backtest_metrics or {}, expanded_ranking=False)
+    render_danma_module(current_danma_prediction(), st.session_state.backtest_metrics or {}, expanded_ranking=False)
     position_report = st.session_state.get("position_7_report")
     pool_df = st.session_state.get("candidate_pool_df")
     candidate_groups = st.session_state.get("candidate_groups") or {}
@@ -5043,34 +5395,37 @@ def render_candidate_table(candidate_df: pd.DataFrame) -> None:
     render_position_7_module(position_report, st.session_state.backtest_metrics or {})
     st.markdown('<div class="fc3d-panel"><h3>候选号码分组</h3>', unsafe_allow_html=True)
     st.markdown(f'<div class="fc3d-note">{SIMULATION_TEXT} {SAFETY_TEXT}</div>', unsafe_allow_html=True)
+    st.markdown('<div class="fc3d-note" style="margin-top:0.35rem">主候选按集成模型相对分数排序；分散候选尽量拉开号码结构；冷门参考来自343组候选池后段，仅用于观察分布。</div>', unsafe_allow_html=True)
+    st.markdown('<div class="fc3d-candidate-section"><h4>主候选 Top20</h4>', unsafe_allow_html=True)
+    st.markdown(compact_candidate_grid_html(main_df), unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+    render_candidate_group_table(
+        "分散候选 Top20",
+        "从同一个343组候选池中挑选，尽量减少与已选号码的逐位重复。",
+        diverse_df,
+        tone="diverse",
+    )
+    render_candidate_group_table(
+        "冷门参考 Top20",
+        "来自343组候选池的后段低分区域，只作分布参考，不代表更可能出现。",
+        long_tail_df,
+        tone="long-tail",
+    )
+
+    st.markdown('<h4 style="margin:0.9rem 0 0.35rem 0">0-9完整排名和模型支持来源</h4>', unsafe_allow_html=True)
     context_df = candidate_model_context_dataframe(
         st.session_state.get("candidate_model_scores") or st.session_state.get("trained_models"),
         st.session_state.get("backtest_metrics"),
         st.session_state.get("backtest_weights"),
     )
     st.dataframe(context_df, width="stretch", hide_index=True)
-    st.markdown('<div class="fc3d-note" style="margin-top:0.35rem">主候选按集成模型相对分数排序；分散候选尽量拉开号码结构；冷门参考来自343组候选池后段，仅用于观察分布。</div>', unsafe_allow_html=True)
-    top_label = len(main_df) if main_df is not None else 0
-    st.markdown(f'<h4 style="margin:0.8rem 0 0.35rem 0">主候选 Top{top_label}</h4>', unsafe_allow_html=True)
-    st.markdown(compact_candidate_grid_html(main_df), unsafe_allow_html=True)
-    render_candidate_group_table(
-        f"分散候选 Top{len(diverse_df) if diverse_df is not None else 0}",
-        "从同一个343组候选池中挑选，尽量减少与已选号码的逐位重复。",
-        diverse_df,
-        expanded=False,
-    )
-    render_candidate_group_table(
-        f"冷门参考 Top{len(long_tail_df) if long_tail_df is not None else 0}",
-        "来自343组候选池的后段低分区域，只作分布参考，不代表更可能出现。",
-        long_tail_df,
-        expanded=False,
-    )
+    render_no_position_7_module(current_no_position_7_prediction(), st.session_state.backtest_metrics or {}, expanded_ranking=False)
 
     report_text = build_report_text(st.session_state.validation_report, st.session_state.backtest_metrics, main_df)
     ensure_report_download(report_text)
     st.markdown('<div class="fc3d-export-note">候选结果已生成，可直接导出当前数据、回测结论和候选号码。</div>', unsafe_allow_html=True)
     st.download_button(
-        "导出报告",
+        "导出完整分析报告",
         data=report_text,
         file_name=st.session_state.last_report_file,
         mime="text/markdown",
@@ -5134,7 +5489,6 @@ def render_candidate_table(candidate_df: pd.DataFrame) -> None:
 
 def render_candidate_placeholder() -> None:
     render_danma_module(current_danma_prediction(), st.session_state.backtest_metrics or {}, expanded_ranking=False)
-    render_no_position_7_module(current_no_position_7_prediction(), st.session_state.backtest_metrics or {}, expanded_ranking=False)
     render_position_7_module(None, st.session_state.backtest_metrics or {})
     st.markdown('<div class="fc3d-panel"><h3>Top 候选号码</h3>', unsafe_allow_html=True)
     st.markdown(f'<div class="fc3d-note">{SIMULATION_TEXT} 上传并校验数据后，可生成候选表。</div>', unsafe_allow_html=True)
@@ -5155,6 +5509,7 @@ def render_candidate_placeholder() -> None:
         )
     )
     st.markdown("</div>", unsafe_allow_html=True)
+    render_no_position_7_module(current_no_position_7_prediction(), st.session_state.backtest_metrics or {}, expanded_ranking=False)
 
 
 def render_backtest_results(metrics: dict[str, dict[str, float]], note: str, fold_df: pd.DataFrame | None = None) -> None:
@@ -5166,6 +5521,7 @@ def render_backtest_results(metrics: dict[str, dict[str, float]], note: str, fol
         f'<div class="fc3d-note">{escape(result_note)}</div>',
         unsafe_allow_html=True,
     )
+    st.markdown(backtest_conclusion_html(metrics, note, fold_df), unsafe_allow_html=True)
     verdict_text, verdict_class = baseline_comparison_text(metrics)
     summary_verdict_df = baseline_summary_dataframe(metrics)
     if not summary_verdict_df.empty:
@@ -5204,6 +5560,7 @@ def render_backtest_results(metrics: dict[str, dict[str, float]], note: str, fol
                 '<div class="fc3d-note" style="margin:0.7rem 0 0.4rem 0">统计审计：命中次数 / 理论期望 / 差值 / 95%置信区间 / 近似p值 / 是否显著</div>',
                 unsafe_allow_html=True,
             )
+            st.markdown(significance_badges_html(audit_table), unsafe_allow_html=True)
             st.dataframe(audit_table, width="stretch", hide_index=True)
         danma_audit = danma_backtest_audit_table(metrics)
         if not danma_audit.empty:
@@ -5290,6 +5647,132 @@ def ensure_report_download(report_text: str) -> None:
     st.session_state.last_report_file = f"fc3d_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
 
 
+def candidate_and_danma_export_dataframe() -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    danma_prediction = current_danma_prediction()
+    if danma_prediction:
+        ranking = danma_prediction.get("ranking")
+        if ranking is not None and not ranking.empty:
+            for row in ranking.head(3).to_dict("records"):
+                rows.append(
+                    {
+                        "类型": "下一期3个胆码",
+                        "排名": int(row.get("rank", 0)),
+                        "号码": str(row.get("digit", "")),
+                        "模型相对分数": f"{float(row.get('score', 0.0)):.6f}",
+                        "支持模型": str(row.get("source_models", "")),
+                        "理由": "胆码模型排序结果",
+                    }
+                )
+    candidate_groups = st.session_state.get("candidate_groups") or {}
+    candidate_sections = [
+        ("主候选Top20", candidate_groups.get("main", st.session_state.get("candidate_df"))),
+        ("分散候选Top20", candidate_groups.get("diverse", pd.DataFrame())),
+        ("冷门参考Top20", candidate_groups.get("long_tail", pd.DataFrame())),
+    ]
+    for section_name, data in candidate_sections:
+        if data is None or data.empty:
+            continue
+        for idx, row in enumerate(data.head(20).itertuples(index=False), start=1):
+            rows.append(
+                {
+                    "类型": section_name,
+                    "排名": int(getattr(row, "rank", idx)),
+                    "号码": str(getattr(row, "number", "")),
+                    "模型相对分数": f"{float(getattr(row, 'score', 0.0)):.6f}",
+                    "支持模型": str(getattr(row, "source_models", "")),
+                    "理由": str(getattr(row, "reason", "")),
+                }
+            )
+    return pd.DataFrame(rows, columns=["类型", "排名", "号码", "模型相对分数", "支持模型", "理由"])
+
+
+def render_export_center(report_text: str) -> None:
+    report = st.session_state.validation_report or {}
+    data_version = str(report.get("data_version", st.session_state.app_state.data_version or "—"))
+    has_backtest = bool(st.session_state.backtest_metrics)
+    has_candidates = st.session_state.candidate_df is not None
+    has_position_7 = st.session_state.get("position_7_report") is not None
+    has_danma = current_danma_prediction() is not None
+    content_items = [
+        ("数据版本", data_version),
+        ("回测结论", "已包含" if has_backtest else "待回测"),
+        ("7码结果", "已包含" if has_position_7 else "待生成"),
+        ("下一期3个胆码", "已包含" if has_danma else "待生成"),
+        ("主候选Top20", "已包含" if has_candidates else "待生成"),
+        ("Top10/Top20/Top50回测", "已包含" if has_backtest else "待回测"),
+        ("统计审计", "已包含" if has_backtest else "待回测"),
+    ]
+    cards = "".join(
+        (
+            '<div class="fc3d-mini">'
+            f'<div class="label">{escape(label)}</div>'
+            f'<div class="value">{escape(value)}</div>'
+            "</div>"
+        )
+        for label, value in content_items
+    )
+    st.markdown(
+        f"""
+        <div class="fc3d-panel">
+          <h3>报告中心</h3>
+          <div class="fc3d-note">当前状态：{escape(app_stage())}。报告只汇总页面已生成的模拟分析结果，不新增任何模型计算。</div>
+          <h4 style="margin:0.8rem 0 0.35rem 0">报告包含内容</h4>
+          <div class="fc3d-export-center-grid">{cards}</div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if not has_backtest or not has_candidates:
+        st.markdown(
+            '<div class="fc3d-warning" style="margin-bottom:0.6rem">当前报告尚未包含完整回测和候选结果，请先完成时间顺序回测并生成候选。</div>',
+            unsafe_allow_html=True,
+        )
+    st.download_button(
+        "导出完整分析报告",
+        data=report_text,
+        file_name=st.session_state.last_report_file,
+        mime="text/markdown",
+        key="export_full_report",
+        width="stretch",
+    )
+    pool_df = st.session_state.get("candidate_pool_df")
+    if pool_df is not None and not pool_df.empty:
+        export_pool = format_343_export_dataframe(pool_df)
+        st.download_button(
+            "导出全部343组合",
+            data=export_pool.to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"fc3d_343_pool_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+            key="export_tab_343_pool",
+            width="stretch",
+        )
+    else:
+        st.download_button(
+            "导出全部343组合",
+            data=b"",
+            file_name="fc3d_343_pool_pending.csv",
+            mime="text/csv",
+            key="export_tab_343_pool_disabled",
+            width="stretch",
+            disabled=True,
+            help="请先生成候选与胆码。",
+        )
+    candidate_export_df = candidate_and_danma_export_dataframe()
+    st.download_button(
+        "导出胆码与候选CSV",
+        data=candidate_export_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name=f"fc3d_danma_candidates_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        mime="text/csv",
+        key="export_danma_candidates",
+        width="stretch",
+        disabled=candidate_export_df.empty,
+        help="请先生成候选与胆码。" if candidate_export_df.empty else "导出当前页面展示的胆码、主候选、分散候选和冷门参考。",
+    )
+    with st.expander("查看报告预览", expanded=False):
+        st.code(report_text, language="markdown")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
 def backtest_run_summary_dataframe(metrics: dict[str, dict[str, float]], note: str, fold_df: pd.DataFrame | None = None) -> pd.DataFrame:
     if not metrics:
         return pd.DataFrame(columns=["项目", "值"])
@@ -5325,7 +5808,7 @@ def main() -> None:
     css()
     render_header()
 
-    uploaded, sidebar_demo_btn, sidebar_update_history_btn, sidebar_validate_btn, sidebar_train_btn, sidebar_backtest_btn, sidebar_predict_btn, report_btn = render_model_controls()
+    uploaded, sidebar_demo_btn, sidebar_update_history_btn, sidebar_validate_btn, sidebar_train_btn, sidebar_backtest_btn, sidebar_predict_btn, sidebar_report_btn = render_model_controls()
 
     if uploaded is not None:
         raw_bytes = uploaded.getvalue()
@@ -5355,7 +5838,7 @@ def main() -> None:
     topbar_slot = st.empty()
     with topbar_slot.container():
         render_topbar(report)
-    main_demo_btn, main_validate_btn, main_train_btn, main_backtest_btn, main_predict_btn = render_primary_actions(report)
+    main_demo_btn, main_validate_btn, main_train_btn, main_backtest_btn, main_predict_btn, main_report_btn = render_primary_actions(report)
     render_latest_summary()
 
     demo_btn = sidebar_demo_btn or main_demo_btn
@@ -5363,17 +5846,18 @@ def main() -> None:
     train_btn = sidebar_train_btn or main_train_btn
     backtest_btn = sidebar_backtest_btn or main_backtest_btn
     predict_btn = sidebar_predict_btn or main_predict_btn
+    report_btn = sidebar_report_btn or main_report_btn
 
     if demo_btn:
-        st.session_state.active_tab = "数据概览"
+        st.session_state.active_tab = "数据"
     if sidebar_update_history_btn:
-        st.session_state.active_tab = "数据概览"
+        st.session_state.active_tab = "数据"
     if validate_btn:
-        st.session_state.active_tab = "数据概览"
+        st.session_state.active_tab = "数据"
     if train_btn or backtest_btn:
         st.session_state.active_tab = "回测"
     if predict_btn:
-        st.session_state.active_tab = "候选号码"
+        st.session_state.active_tab = "候选与胆码"
     if report_btn:
         st.session_state.active_tab = "导出"
 
@@ -5462,7 +5946,7 @@ def main() -> None:
         if st.session_state.raw_bytes is None:
             st.warning("请先上传 CSV 或加载内置数据。")
         else:
-            with st.spinner("正在校验数据..."):
+            with st.spinner("正在校验数据，预计30-40秒..."):
                 try:
                     started_at = time.perf_counter()
                     raw_df = read_csv_bytes(st.session_state.raw_bytes)
@@ -5514,13 +5998,17 @@ def main() -> None:
 
         active_tab = st.radio(
             "工作区",
-            ["数据概览", "回测", "候选号码", "导出"],
+            ["数据", "回测", "候选与胆码", "导出"],
             key="active_tab",
             horizontal=True,
-            label_visibility="collapsed",
+            help="按流程查看数据、回测、候选与胆码、导出。",
         )
 
-        if active_tab == "数据概览":
+        if active_tab == "数据":
+            st.markdown(
+                f'<div class="fc3d-panel"><h3>数据工作区</h3><div class="fc3d-note">当前状态：{escape(app_stage())}。未加载数据时，请点击“加载近5年开奖记录”或上传CSV；已加载后请点击“校验数据”。</div></div>',
+                unsafe_allow_html=True,
+            )
             if clean_df is not None and not clean_df.empty:
                 render_charts(clean_df)
                 st.markdown('<div class="fc3d-panel"><h3>最近开奖记录</h3>', unsafe_allow_html=True)
@@ -5530,8 +6018,12 @@ def main() -> None:
                 render_empty_workbench()
 
         if active_tab == "回测":
+            st.markdown(
+                f'<div class="fc3d-panel"><h3>回测工作区</h3><div class="fc3d-note">当前状态：{escape(app_stage())}。已训练后点击“开始滚动回测”，重点看统计结论和是否显著。</div></div>',
+                unsafe_allow_html=True,
+            )
             if train_btn and clean_df is not None and feature_df is not None:
-                with st.spinner("正在训练全量数据..."):
+                with st.spinner("正在训练模型，预计30-60秒..."):
                     try:
                         started_at = time.perf_counter()
                         fit_deep = bool(st.session_state.use_tabresnet)
@@ -5566,9 +6058,9 @@ def main() -> None:
 
             if backtest_btn and clean_df is not None and feature_df is not None:
                 backtest_spinner_text = (
-                    "正在滚动回测中，请稍候..."
+                    "正在滚动回测，预计40-60秒..."
                     if st.session_state.backtest_mode == "滚动窗口"
-                    else "正在回测：严格按时间顺序计算..."
+                    else "正在回测：严格按时间顺序计算，预计40-60秒..."
                 )
                 with st.spinner(backtest_spinner_text):
                     try:
@@ -5629,9 +6121,13 @@ def main() -> None:
                 fold_df = st.session_state.get("backtest_fold_df")
             render_backtest_results(metrics, note, fold_df)
 
-        if active_tab == "候选号码":
+        if active_tab == "候选与胆码":
+            st.markdown(
+                f'<div class="fc3d-panel"><h3>候选与胆码工作区</h3><div class="fc3d-note">当前状态：{escape(app_stage())}。本页优先展示下一期3个胆码、三个位7码和候选Top20；所有结果只是模型排序。</div></div>',
+                unsafe_allow_html=True,
+            )
             if predict_btn and clean_df is not None and feature_df is not None:
-                with st.spinner("正在生成候选：训练全量数据并生成候选号码..."):
+                with st.spinner("正在生成候选，请稍候..."):
                     try:
                         started_at = time.perf_counter()
                         fit_deep = bool(st.session_state.use_tabresnet)
@@ -5682,34 +6178,7 @@ def main() -> None:
         if active_tab == "导出":
             report_text = build_report_text(report, st.session_state.backtest_metrics, st.session_state.candidate_df)
             ensure_report_download(report_text)
-            st.markdown('<div class="fc3d-panel"><h3>导出报告</h3>', unsafe_allow_html=True)
-            if not st.session_state.backtest_metrics or st.session_state.candidate_df is None:
-                st.markdown(
-                    '<div class="fc3d-warning" style="margin-bottom:0.6rem">当前报告尚未包含完整回测和候选结果，请先完成时间顺序回测并生成候选。</div>',
-                    unsafe_allow_html=True,
-                )
-            st.download_button(
-                "下载 Markdown 报告",
-                data=report_text,
-                file_name=st.session_state.last_report_file,
-                mime="text/markdown",
-                width="stretch",
-            )
-            pool_df = st.session_state.get("candidate_pool_df")
-            if pool_df is not None and not pool_df.empty:
-                export_pool = format_343_export_dataframe(pool_df)
-                st.download_button(
-                    "导出全部343组合",
-                    data=export_pool.to_csv(index=False).encode("utf-8-sig"),
-                    file_name=f"fc3d_343_pool_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
-                    key="export_tab_343_pool",
-                    width="stretch",
-                )
-            else:
-                st.markdown('<div class="fc3d-note" style="margin-top:0.45rem">生成候选后，这里会提供全部343组合导出。</div>', unsafe_allow_html=True)
-            st.code(report_text, language="markdown")
-            st.markdown("</div>", unsafe_allow_html=True)
+            render_export_center(report_text)
 
     with right_col:
         render_right_rail()

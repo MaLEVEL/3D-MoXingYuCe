@@ -440,8 +440,11 @@ def test_baseline_summary_is_split_into_short_rows_and_statistical_conclusion():
 def test_css_replaces_expander_icon_text_and_upload_copy():
     source = (ROOT / "fc3d_workbench.py").read_text(encoding="utf-8")
 
-    assert "拖拽CSV到这里" in source
+    assert "上传历史开奖数据CSV（可选）" in source
+    assert "把历史开奖CSV拖到这里" in source
+    assert "没有CSV也可以直接点击下方按钮加载近5年开奖记录" in source
     assert "选择CSV文件" in source
+    assert "字段必须为 `issue,date,number`" not in source
     assert "stExpanderToggleIcon" in source
 
 
@@ -453,6 +456,7 @@ def test_streamlit_internal_upload_and_expander_text_are_hidden_by_real_selector
     assert '[data-testid="stIconMaterial"]' in source
     assert 'content: ""' in source
     assert "border-left:" in source
+    assert '[data-testid="stFileUploaderDropzone"] button[data-testid="stBaseButton-secondary"]' not in source
 
 
 def test_expander_icon_uses_css_shape_not_visible_ligature_text():
@@ -484,7 +488,7 @@ def test_direct_tables_include_scroll_hint_and_compact_container():
 def test_rolling_backtest_spinner_mentions_waiting():
     source = (ROOT / "fc3d_workbench.py").read_text(encoding="utf-8")
 
-    assert "正在滚动回测中，请稍候" in source
+    assert "正在滚动回测，预计40-60秒" in source
 
 
 def test_backtest_audit_table_adds_hits_expected_diff_and_interval():
@@ -601,6 +605,103 @@ def test_long_running_status_copy_mentions_steps_and_elapsed_time():
 
     for phrase in ["正在校验数据", "正在训练", "正在回测", "正在生成候选", "耗时"]:
         assert phrase in source
+
+
+def test_productized_action_area_uses_compact_next_step_and_specific_button_copy():
+    source = (ROOT / "fc3d_workbench.py").read_text(encoding="utf-8")
+
+    assert "fc3d-action-grid" in source
+    assert "fc3d-disabled-reason" in source
+    assert "下一步" in source
+    for phrase in [
+        "加载近5年开奖记录",
+        "校验数据",
+        "训练模型",
+        "开始滚动回测",
+        "生成候选与胆码",
+        "导出分析报告",
+    ]:
+        assert phrase in source
+    assert "重新加载近5年开奖记录会清空当前训练、回测和候选结果" in source
+
+
+def test_workspace_navigation_uses_four_short_work_areas():
+    source = (ROOT / "fc3d_workbench.py").read_text(encoding="utf-8")
+
+    assert '["数据", "回测", "候选与胆码", "导出"]' in source
+    assert 'st.session_state.active_tab = "候选与胆码"' in source
+    assert 'if active_tab == "数据":' in source
+    assert 'if active_tab == "候选与胆码":' in source
+
+
+def test_backtest_result_area_has_conclusion_card_and_significance_badges():
+    source = (ROOT / "fc3d_workbench.py").read_text(encoding="utf-8")
+
+    assert "回测结论卡片" in source
+    assert "fc3d-backtest-conclusion-grid" in source
+    assert "当前模型暂未证明长期有效，仅可作为模拟排序参考。" in source
+    assert "fc3d-sig-yes" in source
+    assert "fc3d-sig-no" in source
+
+
+def test_candidate_and_export_pages_prioritize_user_facing_results():
+    source = (ROOT / "fc3d_workbench.py").read_text(encoding="utf-8")
+
+    assert "fc3d-danma-card" in source
+    assert "胆码只是模型排序结果，不是中奖概率，不代表真实预测。" in source
+    assert "主候选 Top20" in source
+    assert "分散候选 Top20" in source
+    assert "冷门参考 Top20" in source
+    assert "报告包含内容" in source
+    assert "导出完整分析报告" in source
+    assert "导出胆码与候选CSV" in source
+
+
+def test_candidate_and_danma_export_dataframe_uses_current_display_results():
+    ranking = pd.DataFrame(
+        [
+            {"rank": 1, "digit": 6, "score": 0.19, "source_models": "历史频率"},
+            {"rank": 2, "digit": 4, "score": 0.18, "source_models": "遗漏值"},
+            {"rank": 3, "digit": 9, "score": 0.17, "source_models": "和值分布"},
+        ]
+    )
+    main_df = pd.DataFrame(
+        [
+            {"rank": 1, "number": "649", "score": 0.012345, "source_models": "历史频率", "reason": "主候选"},
+        ]
+    )
+    diverse_df = pd.DataFrame(
+        [
+            {"rank": 8, "number": "027", "score": 0.009, "source_models": "随机森林", "reason": "分散"},
+        ]
+    )
+    long_tail_df = pd.DataFrame(
+        [
+            {"rank": 300, "number": "135", "score": 0.001, "source_models": "贝叶斯平滑", "reason": "冷门"},
+        ]
+    )
+    app.st.session_state.danma_prediction = {"ranking": ranking}
+    app.st.session_state.candidate_df = main_df
+    app.st.session_state.candidate_groups = {
+        "main": main_df,
+        "diverse": diverse_df,
+        "long_tail": long_tail_df,
+    }
+
+    export_df = app.candidate_and_danma_export_dataframe()
+
+    assert export_df["类型"].tolist() == [
+        "下一期3个胆码",
+        "下一期3个胆码",
+        "下一期3个胆码",
+        "主候选Top20",
+        "分散候选Top20",
+        "冷门参考Top20",
+    ]
+    assert export_df.loc[0, "号码"] == "6"
+    assert export_df.loc[3, "号码"] == "649"
+    assert export_df.loc[3, "模型相对分数"] == "0.012345"
+    assert "中奖概率" not in ",".join(export_df.columns)
 
 
 def test_export_343_pool_uses_relative_score_fields():
