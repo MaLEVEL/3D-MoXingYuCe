@@ -79,6 +79,66 @@ def test_cross_year_history_rows_are_sorted_by_date():
     assert normalized.iloc[0]["number"] == "000"
 
 
+def test_update_history_repository_appends_missing_online_rows(tmp_path, monkeypatch):
+    rows = []
+    start = pd.Timestamp("2021-01-01")
+    for idx in range(1005):
+        rows.append(
+            {
+                "issue": f"{2021000 + idx:07d}",
+                "date": (start + pd.Timedelta(days=idx)).strftime("%Y-%m-%d"),
+                "number": f"{idx % 1000:03d}",
+            }
+        )
+    online_df = pd.DataFrame(
+        rows
+        + [
+            {"issue": "2023006", "date": "2023-10-03", "number": "006"},
+            {"issue": "2023007", "date": "2023-10-04", "number": "007"},
+        ]
+    )
+    history_path = tmp_path / "history.csv"
+    pd.DataFrame(rows).to_csv(history_path, index=False, encoding="utf-8-sig")
+
+    monkeypatch.setattr(app, "fetch_online_history", lambda days=app.HISTORY_LOOKBACK_DAYS: (online_df, "unit接口"))
+
+    result = app.update_history_repository(history_path)
+    saved = pd.read_csv(history_path, dtype="string", keep_default_na=False)
+
+    assert result["added_count"] == 2
+    assert result["source_name"] == "unit接口"
+    assert result["previous_count"] == 1005
+    assert result["row_count"] == 1007
+    assert result["latest_issue"] == "2023007"
+    assert saved["issue"].duplicated().sum() == 0
+    assert saved.tail(2)["number"].tolist() == ["006", "007"]
+
+
+def test_update_history_repository_does_not_duplicate_current_rows(tmp_path, monkeypatch):
+    rows = []
+    start = pd.Timestamp("2021-01-01")
+    for idx in range(1005):
+        rows.append(
+            {
+                "issue": f"{2021000 + idx:07d}",
+                "date": (start + pd.Timedelta(days=idx)).strftime("%Y-%m-%d"),
+                "number": f"{idx % 1000:03d}",
+            }
+        )
+    online_df = pd.DataFrame(rows)
+    history_path = tmp_path / "history.csv"
+    online_df.to_csv(history_path, index=False, encoding="utf-8-sig")
+
+    monkeypatch.setattr(app, "fetch_online_history", lambda days=app.HISTORY_LOOKBACK_DAYS: (online_df, "unit接口"))
+
+    result = app.update_history_repository(history_path)
+    saved = pd.read_csv(history_path, dtype="string", keep_default_na=False)
+
+    assert result["added_count"] == 0
+    assert result["row_count"] == 1005
+    assert saved["issue"].nunique() == 1005
+
+
 def test_workbench_no_longer_exposes_one_year_default_copy():
     source = (ROOT / "fc3d_workbench.py").read_text(encoding="utf-8")
 

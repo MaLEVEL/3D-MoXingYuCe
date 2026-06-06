@@ -735,6 +735,71 @@ def fetch_online_history(days: int = HISTORY_LOOKBACK_DAYS) -> tuple[pd.DataFram
     raise ValueError("所有在线数据源获取失败；" + "；".join(errors))
 
 
+def normalize_repository_dataframe(df: pd.DataFrame, source_name: str) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["issue", "date", "number"])
+
+    required_cols = ["issue", "date", "number"]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"{source_name}缺少字段：{missing_cols}")
+
+    out = df[required_cols].copy()
+    out["issue"] = out["issue"].astype("string").str.strip()
+    out["date"] = pd.to_datetime(out["date"], errors="coerce")
+    out["number"] = out["number"].astype("string").str.strip().str.replace(r"\D", "", regex=True).str.zfill(3)
+    out = out.dropna(subset=["date"])
+    out = out[out["issue"].str.fullmatch(r"\d{5,8}").fillna(False)]
+    out = out[out["number"].str.fullmatch(r"\d{3}").fillna(False)]
+    out = out.drop_duplicates("issue", keep="last")
+    out = out.sort_values(["date", "issue"]).reset_index(drop=True)
+    out["date"] = out["date"].dt.strftime("%Y-%m-%d")
+    return out[required_cols]
+
+
+def update_history_repository(
+    history_path: Path | str = BUILTIN_HISTORY_PATH,
+    days: int = HISTORY_LOOKBACK_DAYS,
+) -> dict[str, Any]:
+    path = Path(history_path)
+    online_df, source_name = fetch_online_history(days=days)
+    online_clean = normalize_repository_dataframe(online_df, source_name)
+    if online_clean.empty:
+        raise ValueError(f"{source_name}没有返回可写入的数据。")
+
+    if path.exists() and path.stat().st_size > 0:
+        local_clean = normalize_repository_dataframe(read_csv_bytes(path.read_bytes()), path.name)
+    else:
+        local_clean = pd.DataFrame(columns=["issue", "date", "number"])
+
+    previous_count = int(len(local_clean))
+    local_issues = set(local_clean["issue"].astype(str).tolist())
+    missing_online = online_clean[~online_clean["issue"].astype(str).isin(local_issues)].copy()
+
+    combined = normalize_repository_dataframe(pd.concat([local_clean, online_clean], ignore_index=True), "合并历史数据")
+    latest_day = pd.to_datetime(online_clean["date"], errors="coerce").max()
+    if not pd.isna(latest_day):
+        start_day = latest_day - timedelta(days=days)
+        combined_dates = pd.to_datetime(combined["date"], errors="coerce")
+        combined = combined[(combined_dates >= start_day) & (combined_dates <= latest_day)].reset_index(drop=True)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(combined.to_csv(index=False).encode("utf-8-sig"))
+
+    latest_row = combined.iloc[-1] if not combined.empty else pd.Series({"issue": "", "date": "", "number": ""})
+    return {
+        "path": str(path),
+        "source_name": source_name,
+        "previous_count": previous_count,
+        "row_count": int(len(combined)),
+        "added_count": int(len(missing_online)),
+        "latest_issue": str(latest_row.get("issue", "")),
+        "latest_date": str(latest_row.get("date", "")),
+        "latest_number": str(latest_row.get("number", "")),
+        "changed": bool(len(missing_online) > 0 or previous_count != len(combined)),
+    }
+
+
 def demo_button_label() -> str:
     action = "重新加载" if demo_reload_required() else "加载"
     return f"{action}{default_history_name()}"
@@ -4659,6 +4724,7 @@ def render_model_controls() -> None:
         width="stretch",
         disabled=reload_required and not sidebar_confirm_reload,
     )
+    update_history_btn = st.sidebar.button("获取最新数据", key="sidebar_update_history_repository", width="stretch")
     if BUILTIN_HISTORY_PATH.exists():
         st.sidebar.download_button(
             "下载近5年缓存历史CSV",
@@ -4745,7 +4811,7 @@ def render_model_controls() -> None:
     predict_btn = st.sidebar.button("生成候选", key="sidebar_generate_candidates", width="stretch", disabled=not availability["predict"])
     report_btn = st.sidebar.button("导出报告", key="sidebar_export_report", width="stretch", disabled=not availability["export"])
 
-    return uploaded, demo_btn, validate_btn, train_btn, backtest_btn, predict_btn, report_btn
+    return uploaded, demo_btn, update_history_btn, validate_btn, train_btn, backtest_btn, predict_btn, report_btn
 
 
 def weight_display_df() -> pd.DataFrame:
@@ -5259,7 +5325,7 @@ def main() -> None:
     css()
     render_header()
 
-    uploaded, sidebar_demo_btn, sidebar_validate_btn, sidebar_train_btn, sidebar_backtest_btn, sidebar_predict_btn, report_btn = render_model_controls()
+    uploaded, sidebar_demo_btn, sidebar_update_history_btn, sidebar_validate_btn, sidebar_train_btn, sidebar_backtest_btn, sidebar_predict_btn, report_btn = render_model_controls()
 
     if uploaded is not None:
         raw_bytes = uploaded.getvalue()
@@ -5299,6 +5365,8 @@ def main() -> None:
     predict_btn = sidebar_predict_btn or main_predict_btn
 
     if demo_btn:
+        st.session_state.active_tab = "数据概览"
+    if sidebar_update_history_btn:
         st.session_state.active_tab = "数据概览"
     if validate_btn:
         st.session_state.active_tab = "数据概览"
@@ -5343,6 +5411,52 @@ def main() -> None:
         st.session_state.sidebar_confirm_reload_demo = False
         log_event(f"已加载{demo_source_name}：{demo_file_name}。")
         st.rerun()
+
+    if sidebar_update_history_btn:
+        with st.spinner("正在通过在线接口获取最新数据并补全本地数据仓库..."):
+            try:
+                update_result = update_history_repository(BUILTIN_HISTORY_PATH)
+                updated_df = read_csv_bytes(BUILTIN_HISTORY_PATH.read_bytes())
+                updated_bytes = updated_df.to_csv(index=False).encode("utf-8-sig")
+                st.session_state.raw_bytes = updated_bytes
+                st.session_state.raw_df = None
+                st.session_state.clean_df = None
+                st.session_state.validation_report = None
+                st.session_state.feature_df = None
+                st.session_state.trained_models = None
+                st.session_state.backtest_metrics = None
+                st.session_state.backtest_weights = None
+                st.session_state.backtest_note = ""
+                st.session_state.backtest_fold_df = None
+                st.session_state.candidate_df = None
+                st.session_state.candidate_groups = None
+                st.session_state.candidate_pool_df = None
+                st.session_state.candidate_model_scores = None
+                st.session_state.position_7_report = None
+                st.session_state.danma_prediction = None
+                st.session_state.no_position_7_prediction = None
+                st.session_state.app_state.file_name = f"{BUILTIN_HISTORY_PATH.name}（本地数据仓库）"
+                st.session_state.app_state.data_version = short_hash(updated_bytes)
+                st.session_state.app_state.last_loaded_at = now_str()
+                st.session_state.app_state.current_mode = "最新数据已获取"
+                if int(update_result["added_count"]) > 0:
+                    st.success(
+                        f"已补全 {int(update_result['added_count'])} 期，"
+                        f"最新 {update_result['latest_issue']} / {update_result['latest_date']} / {update_result['latest_number']}。"
+                    )
+                else:
+                    st.info(
+                        f"本地数据仓库已是最新，最新 {update_result['latest_issue']} / "
+                        f"{update_result['latest_date']} / {update_result['latest_number']}。"
+                    )
+                log_event(
+                    f"获取最新数据：来源 {update_result['source_name']}，"
+                    f"补全 {update_result['added_count']} 期，当前 {update_result['row_count']} 期。"
+                )
+                st.rerun()
+            except Exception as exc:
+                st.error(f"获取最新数据失败：{exc}")
+                log_event(f"获取最新数据失败：{exc}")
 
     if validate_btn:
         if st.session_state.raw_bytes is None:
