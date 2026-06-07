@@ -544,12 +544,12 @@ def test_position_7_report_includes_high_confidence_threshold():
 
     threshold = report["confidence_threshold"]
 
-    assert threshold["model"] == "history_frequency"
-    assert threshold["feature"] == "min_top7_share"
-    assert threshold["direction"] == "<="
+    assert threshold["model"] == "position_weighted"
+    assert threshold["feature"] == "full_coverage"
+    assert threshold["direction"] == "all"
     assert threshold["target_rate"] == 0.40
-    assert threshold["validation_hits"] == 23
-    assert threshold["validation_selected"] == 57
+    assert threshold["validation_hits"] == 139
+    assert threshold["validation_selected"] == 351
     assert "passes" in threshold
 
 
@@ -809,13 +809,13 @@ def test_danma_score_components_are_normalized_before_weighting():
         assert ranking[column].between(0.0, 1.0).all(), column
     assert ranking["score"].between(0.0, 1.0).all()
     assert app.DANMA_SCORE_WEIGHTS == {
-        "combination_marginal_score": 0.3429,
-        "near30_frequency": 0.0,
+        "combination_marginal_score": 0.1,
+        "near30_frequency": 0.3,
         "near100_frequency": 0.0,
-        "position_frequency": 0.0,
-        "omission_rebound": 0.1322,
-        "sum_distribution_support": 0.2880,
-        "heat_cold_stability": 0.2370,
+        "position_frequency": 0.3,
+        "omission_rebound": 0.3,
+        "sum_distribution_support": 0.0,
+        "heat_cold_stability": 0.0,
     }
 
 
@@ -886,8 +886,8 @@ def test_no_position_7_prediction_includes_separate_confidence_threshold():
     threshold = prediction["confidence_threshold"]
 
     assert threshold["model"] == app.NO_POSITION_7_CONFIDENCE_RULE["model"]
-    assert threshold["feature"] == "top_sum"
-    assert threshold["direction"] == ">="
+    assert threshold["feature"] == "spread"
+    assert threshold["direction"] == "<="
     assert threshold["conditions"] == []
     assert threshold["value"] > 0.0
     assert "passes" in threshold
@@ -909,16 +909,17 @@ def test_quick_scheme_table_includes_current_7_and_danma_thresholds():
     danma_row = table.loc[table["方案"] == "三胆码最优独立方案"].iloc[0]
     direct_row = table.loc[table["方案"] == "直选20注全覆盖方案"].iloc[0]
 
-    assert "c=0.1,o=0.2,s=0.4,h=0.3" in seven_row["权重/阈值"]
-    assert "top_sum>=4.000" in seven_row["权重/阈值"]
-    assert seven_row["近一年验证"] == "7码=23 82.07%，覆盖329/351"
-    assert "history_frequency" in position_row["权重/阈值"]
-    assert "min_top7_share<=0.717" in position_row["权重/阈值"]
-    assert position_row["近一年验证"] == "三位全中 40.35%，覆盖57/173"
-    assert "c=0.3429,o=0.1322,s=0.288,h=0.237" in danma_row["权重/阈值"]
-    assert danma_row["近一年验证"] == "至少命中1个 68.09%，覆盖351/351"
-    assert direct_row["权重/阈值"] == "h=0,b=0.3,o=0.2,s=0.5,p=0；全量输出"
-    assert direct_row["近一年验证"] == "近半年Top20 4.62%，覆盖173/173"
+    assert "c=0.0435,n100=0.0435,p=0.0435,o=0.2174,s=0.3478,h=0.3043" in seven_row["权重/阈值"]
+    assert "spread<=0.462" in seven_row["权重/阈值"]
+    assert seven_row["近一年验证"] == "7码=23 92.00%，覆盖75/351"
+    assert "h=0,b=0.1,o=0.7,s=0,p=0.2" in position_row["权重/阈值"]
+    assert "全量输出" in position_row["权重/阈值"]
+    assert position_row["近一年验证"] == "三位全中 39.60%，覆盖351/351"
+    assert "c=0.1,n30=0.3,p=0.3,o=0.3" in danma_row["权重/阈值"]
+    assert "bottom_sum>=3.071" in danma_row["权重/阈值"]
+    assert danma_row["近一年验证"] == "至少命中1个 78.90%，覆盖109/351"
+    assert direct_row["权重/阈值"] == "h=0.12,b=0.26,o=0.12,s=0.38,p=0.12；全量输出"
+    assert direct_row["近一年验证"] == "近一年Top20 3.99%，覆盖351/351"
 
 
 def test_quick_prediction_scheme_buttons_use_separate_configs():
@@ -932,22 +933,25 @@ def test_quick_prediction_scheme_buttons_use_separate_configs():
     danma_rule = app.get_active_danma_rule()
     direct_weights = app.st.session_state.backtest_weights
 
-    assert seven_rule["model"] == "sum_distribution"
-    assert seven_rule["threshold"] == 4.000389
-    assert seven_rule["weights"]["sum_distribution_support"] == 0.4
-    assert position_rule["model"] == "history_frequency"
-    assert position_rule["feature"] == "min_top7_share"
-    assert position_rule["threshold"] == 0.716771789
-    assert danma_rule["model"] == "ensemble_equal"
-    assert danma_rule["threshold"] is None
-    assert danma_rule["weights"]["sum_distribution_support"] == 0.2880
+    assert seven_rule["model"] == "omission"
+    assert seven_rule["feature"] == "spread"
+    assert seven_rule["direction"] == "<="
+    assert seven_rule["threshold"] == 0.462038
+    assert seven_rule["weights"]["sum_distribution_support"] == 0.3478
+    assert position_rule["model"] == "position_weighted"
+    assert position_rule["direction"] == "all"
+    assert position_rule["weights"]["omission"] == 0.7
+    assert danma_rule["model"] == "omission"
+    assert danma_rule["feature"] == "bottom_sum"
+    assert danma_rule["threshold"] == 3.071032
+    assert danma_rule["weights"]["position_frequency"] == 0.3
     assert seven_rule["weights"] != danma_rule["weights"]
     assert direct_weights == {
-        "history_frequency": 0.0,
-        "bayes_smooth_frequency": 0.3,
-        "omission": 0.2,
-        "sum_distribution": 0.5,
-        "position_frequency": 0.0,
+        "history_frequency": 0.12,
+        "bayes_smooth_frequency": 0.26,
+        "omission": 0.12,
+        "sum_distribution": 0.38,
+        "position_frequency": 0.12,
     }
 
 

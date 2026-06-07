@@ -166,82 +166,95 @@ DANMA_COMPONENT_COLUMNS = [
     "heat_cold_stability",
 ]
 DANMA_SCORE_WEIGHTS = {
-    "combination_marginal_score": 0.3429,
-    "near30_frequency": 0.0,
+    "combination_marginal_score": 0.1,
+    "near30_frequency": 0.3,
     "near100_frequency": 0.0,
-    "position_frequency": 0.0,
-    "omission_rebound": 0.1322,
-    "sum_distribution_support": 0.2880,
-    "heat_cold_stability": 0.2370,
+    "position_frequency": 0.3,
+    "omission_rebound": 0.3,
+    "sum_distribution_support": 0.0,
+    "heat_cold_stability": 0.0,
 }
 NO_POSITION_7_SCORE_WEIGHTS = {
-    "combination_marginal_score": 0.1,
+    "combination_marginal_score": 0.0435,
     "near30_frequency": 0.0,
-    "near100_frequency": 0.0,
-    "position_frequency": 0.0,
-    "omission_rebound": 0.2,
-    "sum_distribution_support": 0.4,
-    "heat_cold_stability": 0.3,
+    "near100_frequency": 0.0435,
+    "position_frequency": 0.0435,
+    "omission_rebound": 0.2174,
+    "sum_distribution_support": 0.3478,
+    "heat_cold_stability": 0.3043,
 }
 DIRECT_TOP20_FULL_COVERAGE_WEIGHTS = {
-    "history_frequency": 0.0,
-    "bayes_smooth_frequency": 0.3,
-    "omission": 0.2,
-    "sum_distribution": 0.5,
-    "position_frequency": 0.0,
+    "history_frequency": 0.12,
+    "bayes_smooth_frequency": 0.26,
+    "omission": 0.12,
+    "sum_distribution": 0.38,
+    "position_frequency": 0.12,
 }
 DIRECT_TOP20_FULL_COVERAGE_RULE = {
     "weights": dict(DIRECT_TOP20_FULL_COVERAGE_WEIGHTS),
-    "validation_rate": 8 / 173,
-    "validation_hits": 8,
-    "validation_selected": 173,
-    "validation_samples": 173,
+    "validation_rate": 14 / 351,
+    "validation_hits": 14,
+    "validation_selected": 351,
+    "validation_samples": 351,
 }
 NO_POSITION_7_CONFIDENCE_RULE = {
-    "model": "sum_distribution",
-    "feature": "top_sum",
-    "direction": ">=",
-    "threshold": 4.000389,
+    "model": "omission",
+    "feature": "spread",
+    "direction": "<=",
+    "threshold": 0.462038,
     "weights": dict(NO_POSITION_7_SCORE_WEIGHTS),
     "target_rate": 0.82,
-    "validation_rate": 270 / 329,
-    "validation_hits": 270,
-    "validation_selected": 329,
+    "validation_rate": 69 / 75,
+    "validation_hits": 69,
+    "validation_selected": 75,
     "validation_samples": 351,
-    "tune_rate": 265 / 321,
-    "tune_hits": 265,
-    "tune_selected": 321,
+    "tune_rate": 78 / 86,
+    "tune_hits": 78,
+    "tune_selected": 86,
+    "tune_samples": 405,
 }
 POSITION_7_TARGET_ALL_RATE = 0.40
-POSITION_7_CONFIDENCE_RULE = {
-    "model": "history_frequency",
-    "feature": "min_top7_share",
-    "direction": "<=",
-    "threshold": 0.716771789,
-    "target_rate": POSITION_7_TARGET_ALL_RATE,
-    "validation_rate": 23 / 57,
-    "validation_hits": 23,
-    "validation_selected": 57,
-    "validation_samples": 173,
-    "validation_metric": "三位全中",
-    "at_least_2_rate": 51 / 57,
-    "at_least_2_hits": 51,
-    "tune_rate": 49 / 114,
-    "tune_hits": 49,
-    "tune_selected": 114,
-    "tune_samples": 351,
+POSITION_7_SCORE_WEIGHTS = {
+    "history_frequency": 0.0,
+    "bayes_smooth_frequency": 0.1,
+    "omission": 0.7,
+    "sum_distribution": 0.0,
+    "position_frequency": 0.2,
 }
-DANMA_CONFIDENCE_RULE = {
-    "model": "ensemble_equal",
+POSITION_7_CONFIDENCE_RULE = {
+    "model": "position_weighted",
     "feature": "full_coverage",
     "direction": "all",
     "threshold": None,
-    "weights": dict(DANMA_SCORE_WEIGHTS),
-    "target_rate": 0.66,
-    "validation_rate": 239 / 351,
-    "validation_hits": 239,
+    "weights": dict(POSITION_7_SCORE_WEIGHTS),
+    "target_rate": POSITION_7_TARGET_ALL_RATE,
+    "validation_rate": 139 / 351,
+    "validation_hits": 139,
     "validation_selected": 351,
     "validation_samples": 351,
+    "validation_metric": "三位全中",
+    "at_least_2_rate": 288 / 351,
+    "at_least_2_hits": 288,
+    "tune_rate": 142 / 405,
+    "tune_hits": 142,
+    "tune_selected": 405,
+    "tune_samples": 405,
+}
+DANMA_CONFIDENCE_RULE = {
+    "model": "omission",
+    "feature": "bottom_sum",
+    "direction": ">=",
+    "threshold": 3.071032,
+    "weights": dict(DANMA_SCORE_WEIGHTS),
+    "target_rate": THEORETICAL_DANMA_AT_LEAST_1_BASELINE + 0.02,
+    "validation_rate": 86 / 109,
+    "validation_hits": 86,
+    "validation_selected": 109,
+    "validation_samples": 351,
+    "tune_rate": 67 / 86,
+    "tune_hits": 67,
+    "tune_selected": 86,
+    "tune_samples": 405,
 }
 DANMA_COMPONENT_LABELS = {
     "combination_marginal_score": "组合边际",
@@ -287,6 +300,7 @@ ML_MODEL_LABELS = {
     "catboost": "类别提升",
     "tabresnet": "残差表格网络",
     "ensemble_equal": "等权集成",
+    "position_weighted": "定位7码加权",
 }
 
 DEFAULT_WINDOWS = [30, 60, 120]
@@ -2933,8 +2947,12 @@ def predict_full_scores(
 
     ensemble = core.ensemble_scores(model_scores, weights=backtest_weights)
     position_rule = get_active_position_7_rule()
-    position_model = str(position_rule.get("model", ""))
-    position_source_scores = active_score_items(model_scores or {}).get(position_model, ensemble)
+    position_weights = position_rule.get("weights")
+    if position_weights:
+        position_source_scores = core.ensemble_scores(active_score_items(model_scores or {}), weights=position_weights)
+    else:
+        position_model = str(position_rule.get("model", ""))
+        position_source_scores = active_score_items(model_scores or {}).get(position_model, ensemble)
     position_report = build_position_7_code_report(position_source_scores, position_rule)
     pool_df = build_position_pool_dataframe(clean_df, model_scores, ensemble, position_report)
     top_k = int(st.session_state.get("top_k", 20))
@@ -4005,7 +4023,7 @@ def append_danma_report_section(lines: list[str], prediction: dict[str, Any] | N
         lines.append(f"- {prediction.get('score_note', DANMA_SCORE_NOTE)}")
         threshold = prediction.get("confidence_threshold") or {}
         if threshold:
-            status = "通过" if threshold.get("passes") else "未通过"
+            status = threshold_status_text(threshold)
             lines.append(
                 f"- 高置信阈值：模型 {display_model_name(str(threshold.get('model', '')))}；"
                 f"{format_confidence_rule_text(threshold, include_values=True)}；状态 {status}。"
@@ -4305,7 +4323,7 @@ def position_7_summary_text(position_report: dict[str, Any]) -> str:
     threshold = position_report.get("confidence_threshold") or {}
     threshold_text = ""
     if threshold:
-        status = "通过" if threshold.get("passes") else "未通过"
+        status = threshold_status_text(threshold)
         threshold_text = (
             f"<br>高置信阈值：{display_model_name(str(threshold.get('model', '')))}；"
             f"{format_confidence_rule_text(threshold, include_values=True)}；状态：{status}。"
@@ -4379,7 +4397,7 @@ def render_danma_module(
     threshold = prediction.get("confidence_threshold") or {}
     threshold_note = ""
     if threshold:
-        threshold_status = "通过" if threshold.get("passes") else "未通过"
+        threshold_status = threshold_status_text(threshold)
         threshold_note = (
             f"<br>当前胆码配置：{escape(display_model_name(str(threshold.get('model', ''))))}；"
             f"{escape(format_confidence_rule_text(threshold, include_values=True))}；状态：{threshold_status}。"
@@ -4434,7 +4452,7 @@ def render_no_position_7_module(
     latest_date = escape(str(prediction.get("latest_date", "")))
     threshold = prediction.get("confidence_threshold") or {}
     if threshold:
-        threshold_status = "通过" if threshold.get("passes") else "未通过"
+        threshold_status = threshold_status_text(threshold)
         threshold_text = (
             f"高置信阈值：{escape(display_model_name(str(threshold.get('model', ''))))}；"
             f"{escape(format_confidence_rule_text(threshold, include_values=True))}；状态：{threshold_status}。"
@@ -4681,12 +4699,21 @@ def format_confidence_rule_text(rule_or_status: dict[str, Any], include_values: 
     return format_threshold_condition(rule_or_status, include_value=include_values)
 
 
+def threshold_status_text(threshold: dict[str, Any]) -> str:
+    if not threshold:
+        return "未配置阈值，仅按分数从高到低排序推荐"
+    if threshold.get("direction") == "all" or threshold.get("threshold") is None:
+        return "全量输出，按分数从高到低排序推荐"
+    return "符合阈值" if threshold.get("passes") else "未符合阈值，仅按分数从高到低排序推荐"
+
+
 def quick_scheme_dataframe() -> pd.DataFrame:
     seven_rule = NO_POSITION_7_CONFIDENCE_RULE
     position_rule = POSITION_7_CONFIDENCE_RULE
     danma_rule = DANMA_CONFIDENCE_RULE
     direct_rule = DIRECT_TOP20_FULL_COVERAGE_RULE
     seven_weights = seven_rule.get("weights", NO_POSITION_7_SCORE_WEIGHTS)
+    position_weights = position_rule.get("weights", POSITION_7_SCORE_WEIGHTS)
     danma_weights = danma_rule.get("weights", DANMA_SCORE_WEIGHTS)
     direct_weights = direct_rule.get("weights", DIRECT_TOP20_FULL_COVERAGE_WEIGHTS)
     return pd.DataFrame(
@@ -4708,7 +4735,7 @@ def quick_scheme_dataframe() -> pd.DataFrame:
                 "方案": "定位7码高置信全中",
                 "用途": "百十个位各7码，三位全中",
                 "权重/阈值": (
-                    f"{position_rule.get('model')}；"
+                    f"{direct_top20_weight_text(position_weights)}；"
                     f"{format_confidence_rule_text(position_rule)}"
                 ),
                 "近一年验证": (
@@ -4723,7 +4750,7 @@ def quick_scheme_dataframe() -> pd.DataFrame:
             {
                 "方案": "三胆码最优独立方案",
                 "用途": "筛3个胆码，至少命中1个",
-                "权重/阈值": f"{compact_weight_text(danma_weights)}；全量输出",
+                "权重/阈值": f"{compact_weight_text(danma_weights)}；{format_confidence_rule_text(danma_rule)}",
                 "近一年验证": (
                     f"至少命中1个 {float(danma_rule.get('validation_rate', 0.0)):.2%}，"
                     f"覆盖{int(danma_rule.get('validation_selected', 0))}/{int(danma_rule.get('validation_samples', 0))}"
@@ -4735,7 +4762,7 @@ def quick_scheme_dataframe() -> pd.DataFrame:
                 "用途": "直选Top20组合排序",
                 "权重/阈值": f"{direct_top20_weight_text(direct_weights)}；全量输出",
                 "近一年验证": (
-                    f"近半年Top20 {float(direct_rule.get('validation_rate', 0.0)):.2%}，"
+                    f"近一年Top20 {float(direct_rule.get('validation_rate', 0.0)):.2%}，"
                     f"覆盖{int(direct_rule.get('validation_selected', 0))}/{int(direct_rule.get('validation_samples', 0))}"
                 ),
                 "说明": "每期输出Top20，不做高置信筛选",
