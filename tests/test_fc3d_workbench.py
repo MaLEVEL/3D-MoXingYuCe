@@ -100,7 +100,7 @@ def test_update_history_repository_appends_missing_online_rows(tmp_path, monkeyp
     history_path = tmp_path / "history.csv"
     pd.DataFrame(rows).to_csv(history_path, index=False, encoding="utf-8-sig")
 
-    monkeypatch.setattr(app, "fetch_online_history", lambda days=app.HISTORY_LOOKBACK_DAYS: (online_df, "unit接口"))
+    monkeypatch.setattr(app, "fetch_recent_online_history", lambda days=14: (online_df, "unit接口"))
 
     result = app.update_history_repository(history_path)
     saved = pd.read_csv(history_path, dtype="string", keep_default_na=False)
@@ -129,7 +129,7 @@ def test_update_history_repository_does_not_duplicate_current_rows(tmp_path, mon
     history_path = tmp_path / "history.csv"
     online_df.to_csv(history_path, index=False, encoding="utf-8-sig")
 
-    monkeypatch.setattr(app, "fetch_online_history", lambda days=app.HISTORY_LOOKBACK_DAYS: (online_df, "unit接口"))
+    monkeypatch.setattr(app, "fetch_recent_online_history", lambda days=14: (online_df, "unit接口"))
 
     result = app.update_history_repository(history_path)
     saved = pd.read_csv(history_path, dtype="string", keep_default_na=False)
@@ -137,6 +137,43 @@ def test_update_history_repository_does_not_duplicate_current_rows(tmp_path, mon
     assert result["added_count"] == 0
     assert result["row_count"] == 1005
     assert saved["issue"].nunique() == 1005
+
+
+def test_update_history_repository_uses_recent_fetch_for_existing_repository(tmp_path, monkeypatch):
+    local_df = pd.DataFrame(
+        [
+            {"issue": "2026147", "date": "2026-06-06", "number": "712"},
+            {"issue": "2026148", "date": "2026-06-07", "number": "408"},
+        ]
+    )
+    recent_df = pd.DataFrame(
+        [
+            {"issue": "2026148", "date": "2026-06-07", "number": "408"},
+            {"issue": "2026149", "date": "2026-06-08", "number": "696"},
+        ]
+    )
+    history_path = tmp_path / "history.csv"
+    local_df.to_csv(history_path, index=False, encoding="utf-8-sig")
+    requested_days = []
+
+    def fake_recent_fetch(days=14):
+        requested_days.append(days)
+        return recent_df, "recent接口"
+
+    def fail_full_fetch(days=app.HISTORY_LOOKBACK_DAYS):
+        raise AssertionError("existing repositories should not fetch the full five-year history")
+
+    monkeypatch.setattr(app, "fetch_recent_online_history", fake_recent_fetch)
+    monkeypatch.setattr(app, "fetch_online_history", fail_full_fetch)
+
+    result = app.update_history_repository(history_path)
+    saved = pd.read_csv(history_path, dtype="string", keep_default_na=False)
+
+    assert requested_days and requested_days[0] <= 14
+    assert result["source_name"] == "recent接口"
+    assert result["added_count"] == 1
+    assert result["latest_issue"] == "2026149"
+    assert saved["issue"].tolist() == ["2026147", "2026148", "2026149"]
 
 
 def test_workbench_no_longer_exposes_one_year_default_copy():

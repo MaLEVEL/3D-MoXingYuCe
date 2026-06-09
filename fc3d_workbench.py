@@ -55,8 +55,10 @@ THREED178_YEAR_URL = "https://www.3d178.cn/kaijiang/{year}/"
 APIHZ_LATEST_URL = "https://cn.apihz.cn/api/caipiao/fucai3d.php?id=88888888&key=88888888"
 FALLBACK_17500_ASC_URL = "https://data.17500.cn/3d_asc.txt"
 HISTORY_LOOKBACK_DAYS = 365 * 5
+RECENT_HISTORY_LOOKBACK_DAYS = 14
 DEFAULT_ROLLING_INITIAL_TRAIN_SIZE = 1000
 DEFAULT_ROLLING_BATCH_SIZE = 50
+MIN_STABLE_HISTORY_ROWS = 1000
 MIN_DEEP_MODEL_TRAIN_SAMPLES = 1000
 SAFETY_TEXT = "本工具仅用于学习和模拟研究，不代表真实预测，不建议用于投注。"
 SIMULATION_TEXT = "仅为模型模拟，不代表真实开奖结果。"
@@ -616,7 +618,12 @@ def fetch_url_text(url: str, timeout: int = 20) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
-def normalize_history_rows(rows: list[dict[str, str]], days: int, source_name: str) -> pd.DataFrame:
+def normalize_history_rows(
+    rows: list[dict[str, str]],
+    days: int,
+    source_name: str,
+    min_rows: int = MIN_STABLE_HISTORY_ROWS,
+) -> pd.DataFrame:
     if not rows:
         raise ValueError(f"{source_name}没有返回可用历史数据。")
 
@@ -635,14 +642,18 @@ def normalize_history_rows(rows: list[dict[str, str]], days: int, source_name: s
     start_day = latest_day - timedelta(days=days)
     df = df[(df["date"] >= start_day) & (df["date"] <= latest_day)]
     df = df.sort_values(["date", "issue"]).reset_index(drop=True)
-    if len(df) < 1000:
-        raise ValueError(f"{source_name}近5年数据不足：仅 {len(df)} 期。")
+    if len(df) < min_rows:
+        raise ValueError(f"{source_name}数据不足：仅 {len(df)} 期。")
 
     df["date"] = df["date"].dt.strftime("%Y-%m-%d")
     return df[["issue", "date", "number"]]
 
 
-def fetch_huiniao_history(days: int = HISTORY_LOOKBACK_DAYS, limit: int = 2500) -> pd.DataFrame:
+def fetch_huiniao_history(
+    days: int = HISTORY_LOOKBACK_DAYS,
+    limit: int = 2500,
+    min_rows: int = MIN_STABLE_HISTORY_ROWS,
+) -> pd.DataFrame:
     params = {
         "type": "fcsd",
         "page": 1,
@@ -681,7 +692,11 @@ def fetch_huiniao_history(days: int = HISTORY_LOOKBACK_DAYS, limit: int = 2500) 
             }
         )
 
-    return normalize_history_rows(rows, days, "Huiniao API")
+    return normalize_history_rows(rows, days, "Huiniao API", min_rows=min_rows)
+
+
+def fetch_huiniao_recent_history(days: int = RECENT_HISTORY_LOOKBACK_DAYS, limit: int = 60) -> pd.DataFrame:
+    return fetch_huiniao_history(days=days, limit=limit, min_rows=1)
 
 
 def fetch_3d178_history(days: int = HISTORY_LOOKBACK_DAYS) -> pd.DataFrame:
@@ -802,6 +817,22 @@ def fetch_online_history(days: int = HISTORY_LOOKBACK_DAYS) -> tuple[pd.DataFram
     raise ValueError("所有在线数据源获取失败；" + "；".join(errors))
 
 
+def fetch_recent_online_history(days: int = RECENT_HISTORY_LOOKBACK_DAYS) -> tuple[pd.DataFrame, str]:
+    recent_days = max(1, int(days))
+    errors: list[str] = []
+    sources: list[tuple[str, Callable[[], pd.DataFrame]]] = [
+        ("Huiniao API近期开奖", lambda: fetch_huiniao_recent_history(days=recent_days, limit=max(30, recent_days * 4))),
+        ("APIHz最新开奖接口", lambda: pd.DataFrame([fetch_apihz_latest_draw()])),
+    ]
+    for source_name, fetcher in sources:
+        try:
+            return fetcher(), source_name
+        except Exception as exc:
+            errors.append(f"{source_name}：{exc}")
+
+    raise ValueError("所有近期数据源获取失败；" + "；".join(errors))
+
+
 def normalize_repository_dataframe(df: pd.DataFrame, source_name: str) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(columns=["issue", "date", "number"])
@@ -829,23 +860,37 @@ def update_history_repository(
     days: int = HISTORY_LOOKBACK_DAYS,
 ) -> dict[str, Any]:
     path = Path(history_path)
-    online_df, source_name = fetch_online_history(days=days)
-    online_clean = normalize_repository_dataframe(online_df, source_name)
-    if online_clean.empty:
-        raise ValueError(f"{source_name}没有返回可写入的数据。")
-
     if path.exists() and path.stat().st_size > 0:
         local_clean = normalize_repository_dataframe(read_csv_bytes(path.read_bytes()), path.name)
     else:
         local_clean = pd.DataFrame(columns=["issue", "date", "number"])
+
+    if local_clean.empty:
+        online_df, source_name = fetch_online_history(days=days)
+        incremental_mode = False
+    else:
+        local_dates = pd.to_datetime(local_clean["date"], errors="coerce")
+        latest_local_day = local_dates.max()
+        if pd.isna(latest_local_day):
+            recent_days = RECENT_HISTORY_LOOKBACK_DAYS
+        else:
+            today = pd.Timestamp.now().normalize()
+            missing_days = max(1, int((today - latest_local_day.normalize()).days) + 2)
+            recent_days = min(int(days), max(RECENT_HISTORY_LOOKBACK_DAYS, missing_days))
+        online_df, source_name = fetch_recent_online_history(days=recent_days)
+        incremental_mode = True
+
+    online_clean = normalize_repository_dataframe(online_df, source_name)
+    if online_clean.empty:
+        raise ValueError(f"{source_name}没有返回可写入的数据。")
 
     previous_count = int(len(local_clean))
     local_issues = set(local_clean["issue"].astype(str).tolist())
     missing_online = online_clean[~online_clean["issue"].astype(str).isin(local_issues)].copy()
 
     combined = normalize_repository_dataframe(pd.concat([local_clean, online_clean], ignore_index=True), "合并历史数据")
-    latest_day = pd.to_datetime(online_clean["date"], errors="coerce").max()
-    if not pd.isna(latest_day):
+    latest_day = pd.to_datetime(combined["date"], errors="coerce").max()
+    if not incremental_mode and not pd.isna(latest_day):
         start_day = latest_day - timedelta(days=days)
         combined_dates = pd.to_datetime(combined["date"], errors="coerce")
         combined = combined[(combined_dates >= start_day) & (combined_dates <= latest_day)].reset_index(drop=True)
@@ -863,6 +908,7 @@ def update_history_repository(
         "latest_issue": str(latest_row.get("issue", "")),
         "latest_date": str(latest_row.get("date", "")),
         "latest_number": str(latest_row.get("number", "")),
+        "update_mode": "incremental" if incremental_mode else "full",
         "changed": bool(len(missing_online) > 0 or previous_count != len(combined)),
     }
 
